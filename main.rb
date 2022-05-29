@@ -14,6 +14,29 @@ require 'pry'
 # - story load all comments
 # - list limit sizing (+/- or presets)
 
+class Util
+  class << self
+    def red(s); escape(s, 91); end
+    def green(s); escape(s, 92); end
+    def yellow(s); escape(s, 93); end
+    def blue(s); escape(s, 94); end
+    def magenta(s); escape(s, 95); end
+    def cyan(s); escape(s, 96); end
+    def gray(s); escape(s, 90); end
+    def orange(s); escape(s, 208); end
+    def bold(s); escape(s, 1); end
+    def dim(s); escape(s, 22); end
+    def invert(s); escape(s, 7); end
+    def console_lines; %x`tput lines`.to_i; end
+    def console_cols; %x`tput cols`.to_i; end
+    def color(s, fg, bg); escape(s, "#{fg};48;5;#{bg}"); end
+
+    private
+
+    def escape(s, color_code); "\x1B[#{color_code}m#{s}\x1B[0m"; end
+  end
+end
+
 class NetClient
   def call(url)
     uri = URI(url)
@@ -65,11 +88,14 @@ class Post
   end
 
   def rich_title
-    "#{title} [#{type} / #{score}] #{kids.size} comments"
+    type_and_score = "[#{type} / #{score}]"
+    comments = "#{kids.size} comments"
+    "#{Util.bold(title)} #{Util.gray(type_and_score)} #{Util.magenta(comments)}"
   end
 
   def rich_text
-    "#{text} [#{kids.size} reply]"
+    reply = "[#{kids.size} reply]"
+    "#{text} #{Util.magenta(reply)}"
   end
 end
 
@@ -207,7 +233,12 @@ module NavigationContext
     end
 
     def into_reply
-      Comment.new(@comment.kid_nth(@idx), self)
+      return self unless current_comment.has_kids?
+      Comment.new(current_comment, self)
+    end
+
+    def current_comment
+      @comment.kid_nth(@idx)
     end
 
     def close
@@ -259,6 +290,9 @@ class Navigator
   end
 
   def print_screen
+    puts(Util.color("   HackerNews Reader | v0.0   ", 97, 208))
+    puts()
+
     case @context
     when NavigationContext::Feed
       start = @context.idx - (@context.idx % FEED_LIST_SIZE)
@@ -266,21 +300,26 @@ class Navigator
       start.upto(start + FEED_LIST_SIZE - 1) do |i|
         break unless @context.post_exist?(i)
 
-        prefix = i == @context.idx ? '> ' : '  '
+        prefix = i == @context.idx ? Util.yellow('> ') : '  '
         puts("#{prefix}#{@news_reader.feed.post_nth(i).rich_title}")
       end
     else NavigationContext::Post
       puts("#{@context.post.rich_title}")
-      puts("#{@context.post.url}") if @context.post.url
+      puts("#{Util.cyan(@context.post.url)}") if @context.post.url
+      puts()
       puts('-' * 32)
+      puts()
 
       comment_start = @context.comment_context.idx - (@context.comment_context.idx % COMMENT_LIST_SIZE)
       comment_start.upto(comment_start + COMMENT_LIST_SIZE - 1) do |i|
-        # break unless @context.comment_exist?(i)
+        break unless @context.comment_exist?(i)
 
         prefix = i == @context.comment_context.idx ? '> ' : '  '
-        puts("#{prefix} (#{i}) #{@context.comment_context.comment.kid_nth(i).rich_text}\n\n")
+        index = Util.gray("#{i})")
+        puts("#{Util.yellow(prefix)} #{index} #{@context.comment_context.comment.kid_nth(i).rich_text}\n\n")
       end
+
+      puts(Util.gray("\t#{comment_start} .. #{comment_start + COMMENT_LIST_SIZE - 1} out of #{@context.comment_context.comment.kids.size}"))
     end
   end
 
