@@ -31,6 +31,16 @@ class Util
     def console_cols; %x`tput cols`.to_i; end
     def color(s, fg, bg); escape(s, "#{fg};48;5;#{bg}"); end
 
+    def block_indent(width, indent, s)
+      s
+        .chars
+        .each_slice(width - indent)
+        .map do |slice|
+          (' ' * indent) + slice.join
+        end
+        .join("\n")
+    end
+
     private
 
     def escape(s, color_code); "\x1B[#{color_code}m#{s}\x1B[0m"; end
@@ -244,6 +254,20 @@ module NavigationContext
     def close
       @parent
     end
+
+    def ancestors
+      return [] if @parent.nil?
+
+      out = [comment]
+      current = @parent
+
+      while !current.nil?
+        out.unshift(current.comment) unless current.parent.nil?
+        current = current.parent
+      end
+
+      out
+    end
   end
 end
 
@@ -309,6 +333,16 @@ class Navigator
       puts()
       puts('-' * 32)
       puts()
+
+      console_cols = Util.console_cols
+
+      ancestors = @context.comment_context.ancestors
+      ancestors.each_with_index do |ancestor, i|
+        puts(Util.block_indent(console_cols - 1, (i + 1) * 4, ancestor.rich_text))
+        puts()
+      end
+
+      puts("#{'- ' * 16}\n\n") if ancestors.size > 0
 
       comment_start = @context.comment_context.idx - (@context.comment_context.idx % COMMENT_LIST_SIZE)
       comment_start.upto(comment_start + COMMENT_LIST_SIZE - 1) do |i|
