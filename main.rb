@@ -3,16 +3,19 @@ require 'net/http'
 require 'pp'
 require 'json'
 require 'pry'
+require 'cgi'
 
 # Refactor:
 # - context own printing and navigation
 
 # Ideas:
 # - async background story load
+# - sqlite caching or something
 # - html to terminal color converter
 # - pager
 # - story load all comments
 # - list limit sizing (+/- or presets)
+# - per context keystroke legend
 
 class Util
   class << self
@@ -105,22 +108,28 @@ class Post
 
   def rich_text
     reply = "[#{kids.size} reply]"
-    "#{text} #{Util.magenta(reply)}"
+
+    nice_text = text || ''
+    nice_text = CGI.unescapeHTML(nice_text)
+    nice_text = nice_text.gsub(/<p>/, " ")
+    nice_text = nice_text.gsub(/(\[\d+\])/, "\x1B[95m\\1\x1B[0m")
+    nice_text = nice_text.gsub(/<i>([^<]+)<\/i>/, "\x1B[37m\\1\x1B[0m")
+    nice_text = nice_text.gsub(/<a href="([^"]+)"[^<]+<\/a>/, "\x1B[93m\\1\x1B[0m")
+
+    "#{nice_text} #{Util.magenta(reply)}"
   end
 end
 
 class Feed
-  TOP_STORY_LIST_URL = 'https://hacker-news.firebaseio.com/v0/topstories.json'
-  TOP_ASK_LIST_URL = 'https://hacker-news.firebaseio.com/v0/askstories.json'
-
-  def initialize(net_client)
+  def initialize(net_client, feed_url)
     @net_client = net_client
+    @feed_url = feed_url
     @toplist_ids = nil
     @posts = {}
   end
 
   def toplist_ids
-    @toplist_ids ||= @net_client.call_json(TOP_STORY_LIST_URL)
+    @toplist_ids ||= @net_client.call_json(@feed_url)
   end
 
   def post_nth(n)
@@ -133,14 +142,44 @@ class Feed
   end
 end
 
+class Feeds
+  TOP_STORY_LIST_URL = 'https://hacker-news.firebaseio.com/v0/topstories.json'
+  TOP_ASK_LIST_URL = 'https://hacker-news.firebaseio.com/v0/askstories.json'
+
+  attr_reader(:options)
+
+  def initialize(net_client)
+    @net_client = net_client
+    @options = {
+      "Top stories" => TOP_STORY_LIST_URL,
+      "Top asks" => TOP_ASK_LIST_URL,
+    }
+
+    @feeds = {}
+  end
+
+  def feed_count
+    @options.size
+  end
+
+  def feed_nth(n)
+    raise("Invalid feed n: #{n}") if n < 0 || n >= @options.size
+    feed(@options.values[n])
+  end
+
+  def feed(url)
+    @feeds[url] ||= Feed.new(@net_client, url)
+  end
+end
+
 class NewsReader
   def initialize(net_client)
     @net_client = net_client
-    @feed = nil
+    @feeds = nil
   end
 
-  def feed
-    @feed ||= Feed.new(@net_client)
+  def feeds
+    @feeds ||= Feeds.new(@net_client)
   end
 end
 
@@ -153,12 +192,38 @@ module NavigationContext
     end
   end
 
-  class Feed < Base
-    attr_accessor(:idx)
+  class Feeds < Base
+    attr_reader(:feeds)
+    attr_reader(:idx)
 
-    def initialize(feed)
+    def initialize(feeds)
       super()
 
+      @feeds = feeds
+      @idx = 0
+    end
+
+    def next
+      @idx = (@idx + 1) % @feeds.feed_count
+    end
+
+    def prev
+      @idx = (@idx - 1 + @feeds.feed_count) % @feeds.feed_count
+    end
+
+    def open
+      Feed.new(self, @feeds.feed_nth(@idx))
+    end
+  end
+
+  class Feed < Base
+    attr_reader(:idx)
+    attr_reader(:feed)
+
+    def initialize(parent, feed)
+      super()
+
+      @parent = parent
       @idx = 0
       @feed = feed
     end
@@ -173,6 +238,10 @@ module NavigationContext
 
     def open
       Post.new(self, selected_post)
+    end
+
+    def close
+      @parent
     end
 
     def selected_post
@@ -213,8 +282,8 @@ module NavigationContext
       @comment_context.prev
     end
 
-    def into_reply
-      @comment_context = @comment_context.into_reply
+    def open
+      @comment_context = @comment_context.open
     end
 
     def comment_exist?(n)
@@ -242,7 +311,7 @@ module NavigationContext
       @idx -= 1 if @idx > 0
     end
 
-    def into_reply
+    def open
       return self unless current_comment.has_kids?
       Comment.new(current_comment, self)
     end
@@ -278,7 +347,7 @@ class Navigator
   def initialize
     @net_client = NetClient.new
     @news_reader = NewsReader.new(@net_client)
-    @context = NavigationContext::Feed.new(@news_reader.feed)
+    @context = NavigationContext::Feeds.new(@news_reader.feeds)
   end
 
   def run
@@ -290,25 +359,28 @@ class Navigator
       case key
       when 'q' then break
       when 's'
-        if @context.is_a?(NavigationContext::Feed)
-          @context.next
-        elsif @context.is_a?(NavigationContext::Post)
-          @context.next
+        case @context
+        when NavigationContext::Feeds then @context.next
+        when NavigationContext::Feed then @context.next
+        when NavigationContext::Post then @context.next
         end
       when 'w'
-        if @context.is_a?(NavigationContext::Feed)
-          @context.prev
-        elsif @context.is_a?(NavigationContext::Post)
-          @context.prev
+        case @context
+        when NavigationContext::Feeds then @context.prev
+        when NavigationContext::Feed then @context.prev
+        when NavigationContext::Post then @context.prev
         end
       when 'd'
-        if @context.is_a?(NavigationContext::Feed)
-          @context = @context.open
-        elsif @context.is_a?(NavigationContext::Post)
-          @context.into_reply
+        case @context
+        when NavigationContext::Feeds then @context = @context.open
+        when NavigationContext::Feed then @context = @context.open
+        when NavigationContext::Post then @context.open
         end
       when 'a'
-        @context = @context.close if @context.is_a?(NavigationContext::Post)
+        case @context
+        when NavigationContext::Feed then @context = @context.close
+        when NavigationContext::Post then @context = @context.close
+        end
       end
     end
   end
@@ -318,6 +390,11 @@ class Navigator
     puts()
 
     case @context
+    when NavigationContext::Feeds
+      @context.feeds.options.each_with_index do |(name, _), i|
+        prefix = i == @context.idx ? Util.yellow('> ') : '  '
+        puts("#{prefix}#{name}")
+      end
     when NavigationContext::Feed
       start = @context.idx - (@context.idx % FEED_LIST_SIZE)
 
@@ -325,20 +402,26 @@ class Navigator
         break unless @context.post_exist?(i)
 
         prefix = i == @context.idx ? Util.yellow('> ') : '  '
-        puts("#{prefix}#{@news_reader.feed.post_nth(i).rich_title}")
+        puts("#{prefix}#{@context.feed.post_nth(i).rich_title}")
       end
     else NavigationContext::Post
+      console_cols = Util.console_cols
+
       puts("#{@context.post.rich_title}")
       puts("#{Util.cyan(@context.post.url)}") if @context.post.url
       puts()
+
+      if @context.post.text
+        puts(Util.gray(Util.block_indent(console_cols, 4, CGI.unescapeHTML(@context.post.text))))
+        puts()
+      end
+
       puts('-' * 32)
       puts()
 
-      console_cols = Util.console_cols
-
       ancestors = @context.comment_context.ancestors
       ancestors.each_with_index do |ancestor, i|
-        puts(Util.block_indent(console_cols - 1, (i + 1) * 4, ancestor.rich_text))
+        puts(Util.blue(Util.block_indent(console_cols, (i + 1) * 4, ancestor.rich_text)))
         puts()
       end
 
@@ -353,7 +436,7 @@ class Navigator
         puts("#{Util.yellow(prefix)} #{index} #{@context.comment_context.comment.kid_nth(i).rich_text}\n\n")
       end
 
-      puts(Util.gray("\t#{comment_start} .. #{comment_start + COMMENT_LIST_SIZE - 1} out of #{@context.comment_context.comment.kids.size}"))
+      puts(Util.gray("\t#{comment_start}..#{comment_start + COMMENT_LIST_SIZE - 1} out of #{@context.comment_context.comment.kids.size - 1}"))
     end
   end
 
