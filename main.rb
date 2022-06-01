@@ -106,15 +106,19 @@ class Post
     "#{Util.bold(title)} #{Util.gray(type_and_score)} #{Util.magenta(comments)}"
   end
 
-  def rich_text
-    reply = "[#{kids.size} reply]"
-
+  def rich_text_minimal_formatting
     nice_text = text || ''
     nice_text = CGI.unescapeHTML(nice_text)
     nice_text = nice_text.gsub(/<p>/, " ")
     nice_text = nice_text.gsub(/(\[\d+\])/, "\x1B[95m\\1\x1B[0m")
     nice_text = nice_text.gsub(/<i>([^<]+)<\/i>/, "\x1B[37m\\1\x1B[0m")
     nice_text = nice_text.gsub(/<a href="([^"]+)"[^<]+<\/a>/, "\x1B[93m\\1\x1B[0m")
+    nice_text
+  end
+
+  def rich_text
+    reply = "[#{kids.size} reply]"
+    nice_text = rich_text_minimal_formatting
 
     "#{nice_text} #{Util.magenta(reply)}"
   end
@@ -412,7 +416,7 @@ class Navigator
       puts()
 
       if @context.post.text
-        puts(Util.gray(Util.block_indent(console_cols, 4, CGI.unescapeHTML(@context.post.text))))
+        puts(Util.gray(Util.block_indent(console_cols, 4, @context.post.rich_text_minimal_formatting)))
         puts()
       end
 
