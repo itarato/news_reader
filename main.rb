@@ -36,10 +36,15 @@ class Util
 
     def block_indent(width, indent, s)
       s
-        .chars
-        .each_slice(width - indent)
-        .map do |slice|
-          (' ' * indent) + slice.join
+        .lines
+        .map do |line|
+          line
+            .chars
+            .each_slice(width - indent)
+            .map do |slice|
+              (' ' * indent) + slice.join
+            end
+            .join("\n")
         end
         .join("\n")
     end
@@ -110,9 +115,9 @@ class Post
     nice_text = text || ''
     nice_text = CGI.unescapeHTML(nice_text)
     nice_text = nice_text.gsub(/<p>/, " ")
-    nice_text = nice_text.gsub(/(\[\d+\])/, "\x1B[95m\\1\x1B[0m")
-    nice_text = nice_text.gsub(/<i>([^<]+)<\/i>/, "\x1B[37m\\1\x1B[0m")
-    nice_text = nice_text.gsub(/<a href="([^"]+)"[^<]+<\/a>/, "\x1B[93m\\1\x1B[0m")
+    nice_text = nice_text.gsub(/(\[\d+\])/, "\x1B[7m\\1\x1B[27m")
+    nice_text = nice_text.gsub(/<i>([^<]+)<\/i>/, "\x1B[1m\\1\x1B[21m")
+    nice_text = nice_text.gsub(/<a href="([^"]+)"[^<]+<\/a>/, "\x1B[4m\\1\x1B[24m")
     nice_text
   end
 
@@ -345,8 +350,8 @@ module NavigationContext
 end
 
 class Navigator
-  FEED_LIST_SIZE = 4
-  COMMENT_LIST_SIZE = 4
+  FEED_LIST_SIZE = 8
+  COMMENT_LIST_SIZE = 3
 
   def initialize
     @net_client = NetClient.new
