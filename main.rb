@@ -5,6 +5,12 @@ require 'json'
 require 'pry'
 require 'cgi'
 
+# Bugs:
+# - text indenter `block_indent` can cut non visible escape chars - ruining terminal
+#   colors and formatting
+# - text generally looks too wide, but cannot make the window narrower too much
+# - making terminal narrow ruins the main title listing
+
 # Refactor:
 # - context own printing and navigation
 
