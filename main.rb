@@ -114,7 +114,7 @@ class Post
   def rich_title
     type_and_score = "[#{type} / #{score}]"
     comments = "#{kids.size} comments"
-    "#{Util.bold(title)} #{Util.gray(type_and_score)} #{Util.magenta(comments)}"
+    "#{Util.bold(title)}\n  #{Util.gray(type_and_score)} #{Util.magenta(comments)}"
   end
 
   def rich_text_minimal_formatting
@@ -408,7 +408,7 @@ class Navigator
     when NavigationContext::Feeds
       @context.feeds.options.each_with_index do |(name, _), i|
         prefix = i == @context.idx ? Util.yellow('> ') : '  '
-        puts("#{prefix}#{name}")
+        puts("#{prefix}#{name}\n\n")
       end
     when NavigationContext::Feed
       start = @context.idx - (@context.idx % FEED_LIST_SIZE)
@@ -417,13 +417,13 @@ class Navigator
         break unless @context.post_exist?(i)
 
         prefix = i == @context.idx ? Util.yellow('> ') : '  '
-        puts("#{prefix}#{@context.feed.post_nth(i).rich_title}")
+        puts("#{prefix}#{@context.feed.post_nth(i).rich_title}\n\n")
       end
     else NavigationContext::Post
       console_cols = Util.console_cols
 
-      puts("#{@context.post.rich_title}")
-      puts("#{Util.cyan(@context.post.url)}") if @context.post.url
+      puts("  #{@context.post.rich_title}")
+      puts("\n  #{Util.cyan(@context.post.url)}") if @context.post.url
       puts()
 
       if @context.post.text
